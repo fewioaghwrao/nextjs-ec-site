@@ -17,15 +17,31 @@ export async function GET() {
         LIMIT 3;
       `),
       executeQuery<Product[]>(`
-        SELECT id, name, price, image_url
-        FROM products
-        ORDER BY created_at DESC
+        SELECT
+          p.id,
+          p.name,
+          p.price,
+          p.image_url,
+          COALESCE(ROUND(AVG(r.score), 1), 0) AS review_avg,
+          COALESCE(COUNT(r.id), 0) AS review_count
+        FROM products AS p
+        LEFT JOIN reviews AS r ON r.product_id = p.id
+        GROUP BY p.id
+        ORDER BY p.created_at DESC
         LIMIT 4;
       `),
       executeQuery<Product[]>(`
-        SELECT id, name, price, image_url
-        FROM products
-        WHERE is_featured = true
+        SELECT
+          p.id,
+          p.name,
+          p.price,
+          p.image_url,
+          COALESCE(ROUND(AVG(r.score), 1), 0) AS review_avg,
+          COALESCE(COUNT(r.id), 0) AS review_count
+        FROM products AS p
+        LEFT JOIN reviews AS r ON r.product_id = p.id
+        WHERE p.is_featured = true
+        GROUP BY p.id
         ORDER BY RAND()
         LIMIT 4;
       `)

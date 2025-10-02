@@ -1,57 +1,105 @@
+// app/products/[id]/page.tsx
 import React from 'react';
-import { notFound } from 'next/navigation'; // 404ページ表示用
+import { notFound } from 'next/navigation';
 import Link from 'next/link';
 import Image from 'next/image';
 import { type ProductData } from '@/types/product';
+import { type ReviewsResponse } from '@/types/review';
 import { isLoggedIn } from '@/lib/auth';
+import { verifyToken } from '@/lib/jwt'; // ★ 追加
+import { cookies } from 'next/headers';
+import { executeQuery } from '@/lib/db'; // ★ 追加
+import CartControls from '@/app/products/[id]/CartControls';
+import ReviewControls from '@/app/products/[id]/ReviewControls';
+import FavoriteControls from '@/app/products/[id]/FavoriteControls';
 
-// 商品データの型定義
-type Product = ProductData; // 基本型から変更なし
+type Product = ProductData;
 
-// 商品詳細ページに必要なデータ群
 interface ProductDetailPageProps {
-  params: Promise<{
-    id: string; // URLから取得する商品ID
- }>
+  params: Promise<{ id: string }>;
 }
 
-// 商品データを取得
+// ★ サーバー側で直接DBアクセスしてお気に入り確認
+async function getFavoriteExists(productId: string): Promise<boolean> {
+  try {
+    const cookieStore = await cookies();
+    const authToken = cookieStore.get('authToken')?.value;
+    
+    if (!authToken) {
+      console.log('⚠️ No authToken in getFavoriteExists');
+      return false;
+    }
+
+    // JWTを検証してuserIdを取得
+    const payload = await verifyToken(authToken);
+    if (!payload || !payload.userId) {
+      console.log('⚠️ Invalid token payload');
+      return false;
+    }
+
+    const userId = Number(payload.userId);
+    console.log('👤 Checking favorite for userId:', userId, 'productId:', productId);
+
+    // 直接DBに問い合わせ
+    const rows = await executeQuery<{ id: number }>(
+      'SELECT 1 FROM favorites WHERE user_id = ? AND product_id = ? LIMIT 1',
+      [userId, Number(productId)]
+    );
+
+    const exists = rows.length > 0;
+    console.log('💖 Favorite exists:', exists);
+    
+    return exists;
+  } catch (error) {
+    console.error('getFavoriteExists error:', error);
+    return false;
+  }
+}
+
 async function getProduct(id: string): Promise<Product | null> {
   try {
-    // 商品APIから商品データを取得
-    const res = await fetch(`${process.env.BASE_URL}/api/products/${id}`, {
-      cache: 'no-store',
-    });
-
-    // 取得失敗時
+    const res = await fetch(`${process.env.BASE_URL}/api/products/${id}`, { cache: 'no-store' });
     if (!res.ok) return null;
-
-    // APIから返されたデータをJavaScriptの配列に変換
-    const product = await res.json();
-    return product;
+    return await res.json();
   } catch (err) {
     console.error('商品取得エラー：', err);
     return null;
   }
 }
 
-// 商品詳細ページ
+async function getReviews(id: string): Promise<ReviewsResponse | []> {
+  const res = await fetch(`${process.env.BASE_URL}/api/products/${id}/reviews`, { cache: 'no-store' });
+  if (!res.ok) return [];
+  return await res.json();
+}
+
+function displayStars(avgRating: number) {
+  const rating = Math.round(avgRating);
+  return '★'.repeat(rating) + '☆'.repeat(5 - rating);
+}
+
 export default async function ProductDetailPage(props: ProductDetailPageProps) {
-  const resolvedParams = await props.params; // 非同期で取得されるためawaitが必要
-  const productId = resolvedParams.id; // URLパラメータから商品IDを取得
+  const resolvedParams = await props.params;
+  const productId = resolvedParams.id;
 
-  // 商品データを格納する変数
-  const product: Product | null = await getProduct(productId);
+  const loggedIn = await isLoggedIn();
 
-  // 商品が見つからない場合は404ページを表示
+  const [product, reviewsResponse, initialIsFavorite] = await Promise.all([
+    getProduct(productId),
+    getReviews(productId),
+    loggedIn ? getFavoriteExists(productId) : Promise.resolve(false),
+  ]);
+
   if (!product) {
-    notFound(); // returnは不要
+    notFound();
   }
 
-  // 在庫数が存在しない場合の対策
+  const reviews = Array.isArray(reviewsResponse) ? [] : reviewsResponse.reviews;
+  const rating = Array.isArray(reviewsResponse) ? 0 : reviewsResponse.review_avg;
+  const reviewCount = Array.isArray(reviewsResponse) ? 0 : reviewsResponse.pagination.totalItems;
+
   const stock = product.stock ?? 0;
 
-  // 在庫状況に応じて表示テキストとスタイルを切り替え
   let stockText = '売り切れ';
   let stockStyle = 'text-red-600';
   if (stock > 10) {
@@ -62,19 +110,7 @@ export default async function ProductDetailPage(props: ProductDetailPageProps) {
     stockStyle = 'text-orange-500';
   }
 
-  // 数量セレクトボックスのオプションを生成
-  const quantityOptions = [];
-  for (let i = 1; i <= Math.min(stock, 10); i++) { // 最大10個まで
-    quantityOptions.push(<option key={i} value={i}>{i}</option>);
-  }
-
-  // 画像の指定がなければダミー画像を表示
-  const finalImageUrl = product.image_url
-    ? `/uploads/${product.image_url}`
-    : '/images/no-image.jpg';
-
-  // ログイン状態を取得
-  const loggedIn = await isLoggedIn();
+  const finalImageUrl = product.image_url ? `/uploads/${product.image_url}` : '/images/no-image.jpg';
 
   return (
     <main className="container mx-auto px-4 py-8">
@@ -89,44 +125,85 @@ export default async function ProductDetailPage(props: ProductDetailPageProps) {
         <div className="w-full md:w-1/2 space-y-6 pt-4">
           <h1>{product.name}</h1>
           <p className="text-gray-700 whitespace-pre-line">{product.description}</p>
-          <p className="text-3xl font-bold text-indigo-600">¥{product.price.toLocaleString()}<span className="text-base font-normal text-gray-500">（税込）</span></p>
+          <p className="text-3xl font-bold text-indigo-600">
+            ¥{product.price.toLocaleString()}
+            <span className="text-base font-normal text-gray-500">（税込）</span>
+          </p>
+
+          {reviewCount > 0 ? (
+            <div className="flex items-center mb-4">
+              <span className="text-yellow-500 text-xl mr-2">{displayStars(rating)}</span>
+              <span className="text-gray-700 text-base">{rating.toFixed(1)}</span>
+              <span className="text-gray-500 text-sm ml-2">（レビュー{reviewCount}件）</span>
+            </div>
+          ) : (
+            <p className="text-gray-500 text-sm mb-4">まだレビューがありません</p>
+          )}
+
           <p className={`text-base font-medium ${stockStyle}`}>在庫状況：{stockText}</p>
 
-          {/* 一般ユーザー向け項目 */}
           <div className="space-y-6 mt-8">
             {stock > 0 && (
-              <div className="flex items-end gap-4">
-                <div className="flex flex-col">
-                  <label htmlFor="quantity" className="block text-sm text-gray-700">
-                    数量
-                  </label>
-                  <select id="quantity" name="quantity" defaultValue={1}
-                    className="border border-gray-300 rounded-md px-4 py-2 w-24 focus:ring-2 focus:ring-indigo-500"
-                  >
-                    {quantityOptions}
-                  </select>
-                </div>
-                <button className="bg-indigo-500 hover:bg-indigo-600 text-white py-2 px-4 rounded-sm">
-                  カートに追加
-                </button>
-                 {loggedIn && (
-                  <button className="border border-indigo-500 text-indigo-500 py-2 px-4 rounded-sm hover:bg-indigo-50">
-                    購入手続きへ
-                  </button>
-                )}
-              </div>
+              <CartControls
+                cartItem={{
+                  id: product.id.toString(),
+                  title: product.name,
+                  price: product.price,
+                  imageUrl: product.image_url ?? '',
+                }}
+                stock={stock}
+                loggedIn={loggedIn}
+              />
             )}
-            {loggedIn && (
-              <button className="text-teal-800 hover:underline">&#9825; お気に入り追加</button>
-            )}
-          </div>
 
-          <div className="mt-8 pt-4 border-t border-gray-200">
-            <Link href="/products" className="text-indigo-600 hover:underline">
-              ← 商品一覧に戻る
-            </Link>
+            {loggedIn && (
+              <FavoriteControls
+                productId={product.id}
+                initialIsFavorite={initialIsFavorite} 
+                loggedIn={loggedIn}
+                className="text-teal-800 hover:underline"
+              />
+            )}
           </div>
         </div>
+      </div>
+
+      <div className="flex flex-col md:flex-row gap-8 mt-6 p-4 border border-gray-300 rounded-md shadow-sm">
+        <div className="w-full md:w-1/2">
+          <h2 className="mt-2">レビュー一覧</h2>
+          {reviewCount > 0 ? (
+            <ul className="space-y-4 list-none">
+              {reviews.slice(0, 3).map((r) => (
+                <li key={r.id} className="border-b border-gray-300 pb-2">
+                  <div className="flex items-center text-sm text-yellow-500 mb-1">{displayStars(r.score)}</div>
+                  <p className="text-gray-800">{r.content}</p>
+                  <p className="text-xs text-gray-500 mt-1">
+                    {r.user_name} さん {new Date(r.created_at).toLocaleDateString()}
+                  </p>
+                </li>
+              ))}
+              {reviewCount > 3 && (
+                <div className="text-center mt-4">
+                  <Link href={`/products/${productId}/reviews`} className="text-indigo-600 hover:underline">
+                    すべてのレビューを見る（{reviewCount}件）
+                  </Link>
+                </div>
+              )}
+            </ul>
+          ) : (
+            <p className="text-gray-500">まだレビューがありません。</p>
+          )}
+        </div>
+
+        <div className="w-full md:w-1/2 border-l border-gray-200 pl-6">
+          <ReviewControls productId={product.id} loggedIn={loggedIn} />
+        </div>
+      </div>
+
+      <div className="mt-8 pt-4 border-t border-gray-200">
+        <Link href="/products" className="text-indigo-600 hover:underline">
+          ← 商品一覧に戻る
+        </Link>
       </div>
     </main>
   );

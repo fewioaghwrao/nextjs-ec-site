@@ -60,6 +60,8 @@ export default async function ProductsPage({
     id: String(row.id),
     title: row.name,
     price: row.price,
+    rating: row.review_avg,
+    reviewCount: row.review_count,
     imageUrl: row.image_url ?? undefined
   }));
 

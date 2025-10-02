@@ -7,7 +7,7 @@ export default function Footer() {
 
   return (
       <footer className="bg-gray-800 py-4 text-white">
-      <div className="container mx-auto px-4 grid grid-cols-1 md:grid-cols-3 gap-8 border-b border-gray-700 pb-8 mb-8">
+    <div className="container mx-auto px-4 max-w-6xl grid grid-cols-1 md:grid-cols-[2.5fr_1.5fr_1fr] gap-8 border-b border-gray-700 pb-8 mb-8">
       <div>
         <h3 className="text-xl mb-4">SAMURAI Storeについて</h3>
         <p className="text-sm leading-relaxed">最新のトレンドとテクノロジーを取り入れたアイテムをお届けします。</p>
@@ -31,7 +31,7 @@ export default function Footer() {
         </div>
       </div>
       </div>
-      <div className="container mx-auto px-4 text-center text-sm">
+      <div className="container mx-auto px-4 pb-8 text-center text-sm">
         <p>&copy; {currentYear} SAMURAI Store. All Rights Reserved.</p>
       </div>
     </footer>

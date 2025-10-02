@@ -24,7 +24,7 @@ export async function POST(request: NextRequest) {
     );
 
     const user = users[0];
-    if (!user) { // 該当ユーザーが存在しない
+    if (!user) {
       return NextResponse.json({ message: 'メールアドレスまたはパスワードが違います。' }, { status: 401 });
     }
 
@@ -47,20 +47,21 @@ export async function POST(request: NextRequest) {
       message: 'ログイン成功',
       isAdmin: user.is_admin
     });
+    
     // レスポンスのクッキー設定
     response.cookies.set({
       name: JWT_COOKIE,
       value: token,
-      httpOnly: true, // JavaScriptからのアクセスを禁止（XSS対策）
-      // secureは本番環境のみtrueにする
-      secure: process.env.NODE_ENV === 'production', // 暗号化されたHTTPSでのみ送信（盗聴リスク低減）
-      sameSite: 'strict', // 別サイトからのリクエスト時にクッキーを送信しない（CSRF対策）
-      // maxAgeは秒単位
-      maxAge: 60 * 60, // 有効期限（1時間）
-      path: '/', // 全てのパスでクッキーを利用可能にする
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'lax', // ★ 'strict' から 'lax' に変更
+      maxAge: 60 * 60 * 24 * 7, // ★ 7日間に変更
+      path: '/',
     });
 
-    return response; // クッキーを設定したレスポンスを返す
+    console.log('✅ authToken cookie set for user:', user.id);
+
+    return response;
   } catch (error) {
     console.error('ログインAPIエラー：', error);
     return NextResponse.json({ message: 'サーバーエラーが発生しました。' }, { status: 500 });

@@ -30,11 +30,11 @@ export async function GET(request: NextRequest) {
     let order = '';
     switch (sort) {
       case 'priceAsc': // 価格が安い順
-        order = 'ORDER BY price ASC';
+        order = 'ORDER BY p.price ASC';
         break;
       case 'new': // 新着順
       default:
-        order = 'ORDER BY created_at DESC';
+        order = 'ORDER BY p.created_at DESC';
         break;
     }
 
@@ -43,7 +43,7 @@ export async function GET(request: NextRequest) {
 
     // WHERE句のベースを構築
     const where = keyword
-      ? 'WHERE (name LIKE ? OR description LIKE ?)'
+      ? 'WHERE (p.name LIKE ? OR p.description LIKE ?)'
       : ''; // WHERE句を付加せず全データを取得
 
     // WHERE句に指定するパラメータを構築
@@ -59,9 +59,20 @@ export async function GET(request: NextRequest) {
     const [products, totalItemsResult] = await Promise.all([
       // LIMITとOFFSETを使い、現在のページに表示する商品データだけを取得
       executeQuery<Product[]>(`
-        SELECT *
-        FROM products
+        SELECT
+          p.id,
+          p.name,
+          p.price,
+          p.stock,
+          p.image_url,
+          p.updated_at,
+          COALESCE(ROUND(AVG(r.score), 1), 0) AS review_avg,
+          COALESCE(COUNT(r.id), 0) AS review_count
+        FROM products AS p
+        LEFT JOIN reviews AS r ON p.id = r.product_id
         ${where}
+        GROUP BY
+        p.id, p.name, p.price, p.stock, p.image_url, p.updated_at
         ${order}
         LIMIT ?
         OFFSET ?
@@ -70,7 +81,7 @@ export async function GET(request: NextRequest) {
       // 商品データの全件数を取得
       executeQuery<{ count: number }>(`
         SELECT COUNT(*) AS count
-        FROM products
+        FROM products AS p
         ${where}
       ;`, countParams )
     ]);
