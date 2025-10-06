@@ -101,9 +101,9 @@ export async function POST(request: NextRequest) {
       mode: 'payment',
       customer_email: user.email || undefined,
       // 決済成功時のリダイレクト先
-      success_url: `${request.nextUrl.origin}/account?session_id={CHECKOUT_SESSION_ID}`,
+      success_url: `${process.env.BASE_URL}/account?session_id={CHECKOUT_SESSION_ID}`,
       // 決済キャンセル時のリダイレクト先
-      cancel_url: `${request.nextUrl.origin}/order-confirm`,
+      cancel_url: `${process.env.BASE_URL}/order-confirm`,
       // メタデータ
       metadata: {
         // Webhookで注文を特定できるように注文IDを含める

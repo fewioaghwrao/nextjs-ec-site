@@ -6,9 +6,8 @@ import Image from 'next/image';
 import { type ProductData } from '@/types/product';
 import { type ReviewsResponse } from '@/types/review';
 import { isLoggedIn } from '@/lib/auth';
-import { verifyToken } from '@/lib/jwt'; // ★ 追加
 import { cookies } from 'next/headers';
-import { executeQuery } from '@/lib/db'; // ★ 追加
+
 import CartControls from '@/app/products/[id]/CartControls';
 import ReviewControls from '@/app/products/[id]/ReviewControls';
 import FavoriteControls from '@/app/products/[id]/FavoriteControls';
@@ -19,39 +18,23 @@ interface ProductDetailPageProps {
   params: Promise<{ id: string }>;
 }
 
-// ★ サーバー側で直接DBアクセスしてお気に入り確認
-async function getFavoriteExists(productId: string): Promise<boolean> {
+/** ★ API経由でお気に入り状態を取得 */
+async function getFavoriteExistsViaApi(productId: string): Promise<boolean> {
   try {
     const cookieStore = await cookies();
-    const authToken = cookieStore.get('authToken')?.value;
-    
-    if (!authToken) {
-      console.log('⚠️ No authToken in getFavoriteExists');
-      return false;
-    }
+    const token = cookieStore.get('authToken')?.value;
+    const headers: HeadersInit = token ? { Cookie: `authToken=${token}` } : {};
 
-    // JWTを検証してuserIdを取得
-    const payload = await verifyToken(authToken);
-    if (!payload || !payload.userId) {
-      console.log('⚠️ Invalid token payload');
-      return false;
-    }
+    const res = await fetch(`${process.env.BASE_URL}/api/favorites/${productId}`, {
+      cache: 'no-store',
+      headers,
+    });
 
-    const userId = Number(payload.userId);
-    console.log('👤 Checking favorite for userId:', userId, 'productId:', productId);
-
-    // 直接DBに問い合わせ
-    const rows = await executeQuery<{ id: number }>(
-      'SELECT 1 FROM favorites WHERE user_id = ? AND product_id = ? LIMIT 1',
-      [userId, Number(productId)]
-    );
-
-    const exists = rows.length > 0;
-    console.log('💖 Favorite exists:', exists);
-    
-    return exists;
-  } catch (error) {
-    console.error('getFavoriteExists error:', error);
+    if (!res.ok) return false;
+    const json = await res.json();
+    return Boolean(json?.exists);
+  } catch (e) {
+    console.error('favorite fetch error:', e);
     return false;
   }
 }
@@ -84,10 +67,11 @@ export default async function ProductDetailPage(props: ProductDetailPageProps) {
 
   const loggedIn = await isLoggedIn();
 
+  // ★ 並列取得：商品／レビュー／お気に入り状態(API) を同時取得
   const [product, reviewsResponse, initialIsFavorite] = await Promise.all([
     getProduct(productId),
     getReviews(productId),
-    loggedIn ? getFavoriteExists(productId) : Promise.resolve(false),
+    loggedIn ? getFavoriteExistsViaApi(productId) : Promise.resolve(false),
   ]);
 
   if (!product) {
@@ -114,6 +98,7 @@ export default async function ProductDetailPage(props: ProductDetailPageProps) {
 
   return (
     <main className="container mx-auto px-4 py-8">
+      {/* ↓↓↓ 以降のHTML構造は一切変更なし ↓↓↓ */}
       <div className="flex flex-col md:flex-row gap-8">
         <Image
           src={finalImageUrl}
@@ -159,7 +144,7 @@ export default async function ProductDetailPage(props: ProductDetailPageProps) {
             {loggedIn && (
               <FavoriteControls
                 productId={product.id}
-                initialIsFavorite={initialIsFavorite} 
+                initialIsFavorite={initialIsFavorite}
                 loggedIn={loggedIn}
                 className="text-teal-800 hover:underline"
               />
